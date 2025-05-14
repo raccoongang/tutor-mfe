@@ -79,7 +79,7 @@ MFE_CONFIG["SCHEDULE_EMAIL_SECTION"] = True
 {% endif %}
 
 {% if get_mfe("catalog") %}
-CATALOG_MICROFRONTEND_URL = "http://{{ MFE_HOST }}:{{ get_mfe("catalog")["port"] }}/courses"
+CATALOG_MICROFRONTEND_URL = "http://{{ MFE_HOST }}:{{ get_mfe("catalog")["port"] }}/catalog"
 {% endif %}
 
 # Cors configuration
