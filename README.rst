@@ -498,6 +498,83 @@ For instance:
 Refer to the `patch catalog <#template-patch-catalog>`_ below for more details.
 
 
+Hosting extra static files
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The MFE plugin allows other plugins to serve extra static files through the MFE service. This enables hosting custom assets (CSS, images, JavaScript, themes, etc.) directly alongside MFE applications, without rebuilding the core MFE image. Assets are exposed via a dedicated volume, so updates can be deployed dynamically via simple pushes to that volume, speeding up tests and updates without full-image builds.
+
+To enable this functionality, set ``MFE_HOST_EXTRA_FILES`` to ``true``:
+
+.. code-block:: bash
+
+    tutor config save --set MFE_HOST_EXTRA_FILES=true
+
+When this setting is enabled, the configured volume patches (explained below) will be applied in all environments so that extra files can be served. In development mode it will additionally expose port ``8002`` on the ``mfe`` service, allowing direct access to those files. In production deployments, port mapping is not required since files are served through Caddy.
+
+Then add your static files using volume patches. For local deployments, use the ``mfe-volumes`` patch:
+
+.. code-block:: python
+
+    from tutor import hooks
+
+    hooks.Filters.ENV_PATCHES.add_item(
+        (
+            "mfe-volumes",
+            """
+            - /path/to/static/files:/usr/share/caddy/myfiles:ro
+            """
+        )
+    )
+
+For Kubernetes deployments, use the ``mfe-k8s-volumes`` patch to define the volumes you need, and mount them using the ``mfe-k8s-volume-mounts`` patch:
+
+For example, to mount a ConfigMap at ``/usr/share/caddy/myfiles`` so it’s served at ``/myfiles/*``:
+
+.. code-block:: python
+
+    from tutor import hooks
+
+    hooks.Filters.ENV_PATCHES.add_items(
+        [
+            (
+                "mfe-k8s-volumes",
+                """
+                - name: myfiles-volume
+                  configMap:
+                    name: myfiles-configmap
+                """
+            ),
+            (
+                "mfe-k8s-volume-mounts",
+                """
+                - name: myfiles-volume
+                  mountPath: /usr/share/caddy/myfiles
+                  readOnly: true
+                """
+            ),
+        ]
+    )
+
+Your static files will be accessible at ``http(s)://{{ MFE_HOST }}/myfiles/``.
+
+For advanced routing configurations, you can use the ``mfe-caddyfile`` patch to define custom Caddy rules for handling your static files:
+
+.. code-block:: python
+
+    hooks.Filters.ENV_PATCHES.add_item(
+        (
+            "mfe-caddyfile",
+            """
+            # Custom routing for static files
+            handle_path /myfiles/* {
+                root * /usr/share/caddy/myfiles
+                file_server
+            }
+            """
+        )
+    )
+
+
 Installing from a private npm registry
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -767,9 +844,72 @@ File changed: ``tutormfe/templates/mfe/build/mfe/Dockerfile``
 mfe-caddyfile
 ~~~~~~~~~~~~~
 
-Add any configurations for the mfe-caddyfile.
+Add custom configurations to the internal MFE Caddyfile.  
+Patches defined here are rendered **inside** the ``:8002 { ... }`` server block of the MFE container, before the default reverse proxies and route handlers are applied.
+
+Note: This patch modifies the **internal MFE application server** (running in the ``mfe`` container). It is distinct from the ``caddyfile-mfe-proxy`` patch, which updates the **public-facing proxy** Caddyfile under ``apps.LMS_HOST``.
+
+For a complete list of supported directives, consult the Caddy `Directives <https://caddyserver.com/docs/caddyfile/directives>`_ documentation. 
 
 File changed: ``tutormfe/templates/mfe/apps/mfe/Caddyfile``
+
+mfe-volumes
+~~~~~~~~~~~
+
+Add volumes to the mfe service in local Docker Compose deployment.
+
+File changed: ``local/docker-compose.yml``
+
+mfe-k8s-volumes
+~~~~~~~~~~~~~~~
+
+Add volumes to the mfe deployment in Kubernetes.
+
+File changed: ``k8s/deployments.yml``
+
+
+mfe-k8s-volume-mounts
+~~~~~~~~~~~~~~~~~~~~~
+
+Add volume mounts to the ``mfe`` container in the Kubernetes deployment. Use this together with ``mfe-k8s-volumes`` to attach and mount custom volumes (e.g., ConfigMaps, PVCs) inside the container.
+
+File changed: ``k8s/deployments.yml``
+
+
+caddyfile-mfe-proxy
+~~~~~~~~~~~~~~~~~~~
+
+Add any custom configurations for the ``caddyfile-mfe-proxy``.  
+Patches defined here are added to ``/.local/share/tutor/env/apps/caddy/Caddyfile`` under the public-facing MFE apps server block (e.g., ``apps.LMS_HOST``).
+
+Note: This patch applies to the proxy handler for all MFEs and does not target any specific MFE. It is functionally distinct from the ``mfe-caddyfile`` patch.
+
+Its usage is functionally equivalent to that of the `caddyfile-lms <https://github.com/overhangio/tutor/blob/release/docs/reference/patches.rst#caddyfile-lms>`_ and `caddyfile-cms <https://github.com/overhangio/tutor/blob/release/docs/reference/patches.rst#caddyfile-cms>`_ patches.
+
+For a complete list of supported directives, consult the Caddy `Directives <https://caddyserver.com/docs/caddyfile/directives>`_ documentation.
+
+Example: The following patch adds a ``respond`` directive so that visitors requesting ``apps.LMS_HOST/robots.txt`` receive a disallow response:
+
+.. code-block:: python
+
+    from tutor import hooks
+
+    hooks.Filters.ENV_PATCHES.add_item(
+        (
+            "caddyfile-mfe-proxy",
+            """
+    # Serve robots.txt
+    respond /robots.txt 200 {
+        body "User-agent: *
+    Disallow: /"
+        close
+    }
+            """
+        )
+    )
+
+File changed: ``tutormfe/patches/caddyfile``
+
 
 
 Troubleshooting
