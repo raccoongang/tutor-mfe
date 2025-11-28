@@ -53,6 +53,9 @@ Community = "https://discuss.openedx.org/tag/tutor-mfe"
 "Community (Tutor Core)" = "https://discuss.openedx.org/tag/tutor"
 
 # hatch-specific configuration
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.metadata.hooks.custom]
 path = ".hatch_build.py"
 
